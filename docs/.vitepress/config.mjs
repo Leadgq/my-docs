@@ -6,7 +6,7 @@ export default withMermaid(
     lang: 'zh-CN',
     title: '我的文档地址',
     description: '在线文档地址',
-    base: '/vue-preess/',
+    base: '/my-docs/',
 
     markdown: {
       lineNumbers: true,
