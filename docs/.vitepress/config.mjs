@@ -59,12 +59,15 @@ export default withMermaid(
             { text: 'monorepo', link: '/config/monorepo' },
             { text: 'prisma', link: '/config/prisma' },
             { text: 'three', link: '/config/three' },
-            { text: 'nest', link: '/config/nest' },
           ],
         },
         {
           text: 'node',
-          items: [{ text: 'node知识', link: '/node/node' }],
+          items: [
+            { text: 'node知识', link: '/node/node' },
+            { text: 'Next.js', link: '/node/next' },
+            { text: 'Lua', link: '/node/lua' },
+          ],
         },
         {
           text: '题库',
@@ -91,7 +94,6 @@ export default withMermaid(
               { text: 'monorepo', link: '/config/monorepo' },
               { text: 'prisma', link: '/config/prisma' },
               { text: 'three', link: '/config/three' },
-              { text: 'nest', link: '/config/nest' },
             ],
           },
         ],
@@ -144,7 +146,11 @@ export default withMermaid(
         '/node/': [
           {
             text: 'Node',
-            items: [{ text: 'node知识', link: '/node/node' }],
+            items: [
+            { text: 'node知识', link: '/node/node' },
+            { text: 'Next.js', link: '/node/next' },
+            { text: 'Lua', link: '/node/lua' },
+          ],
           },
         ],
         '/notes/': [
