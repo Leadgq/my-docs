@@ -71,7 +71,12 @@ learn/next/
 └── src/
     ├── proxy.ts                 # 请求拦截（鉴权）
     ├── lib/
-    │   └── prisma.ts            # Prisma 客户端单例
+    │   ├── prisma.ts            # Prisma 客户端单例
+    │   ├── i18n.ts              # 国际化：语言检测、字典加载、类型定义
+    │   └── get-dict.ts          # 快捷函数：从请求头获取字典
+    ├── dictionaries/
+    │   ├── zh.json               # 中文翻译
+    │   └── en.json               # 英文翻译
     ├── generated/prisma/        # prisma generate 生成的代码
     ├── components/
     │   └── Greeting.tsx         # 公共组件
@@ -175,6 +180,7 @@ App Router 下，**文件夹 + 特殊文件名 = 路由**。
 | `/me` | `app/me/page.tsx` | 个人中心 |
 | `/me?id=5` | 同上 + 查询参数 | 查询参数路由 |
 | `/connection` | `app/connection/page.tsx` | connection 示例 |
+| `/i18n-test` | `app/i18n-test/page.tsx` | 国际化测试页面 |
 | `/dynamic` | `app/dynamic/[[...id]]/page.tsx` | 可选 catch-all |
 | `/dynamic/5` | 同上 | 路径动态路由 |
 | `/dynamic/a/b/c` | 同上 | 多段 catch-all |
@@ -401,18 +407,70 @@ export async function GET(
 }
 ```
 
----
 
-## Proxy 中间层（鉴权）
+### API 架构设计（电商场景）
+
+> Next.js 的 API Route 适合小项目或 BFF（Backend For Frontend），电商项目推荐将业务接口放在独立后端服务。
+
+**两种方案对比：**
+
+| 方案 | 适用场景 | 说明 |
+|------|----------|------|
+| ✅ **独立后端 API** | 电商、中大型项目 | Java / Go / Node.js 单独部署，Next.js 只做前端 + SSR |
+| ❌ Next.js API Route | 小项目、全栈原型 | `app/api/**/route.ts`，与前端耦合 |
+
+**推荐架构（电商）：**
+
+```
+独立后端 (Go / Java / Node.js)
+  └── RESTful API → 产品、订单、支付、库存
+          ↑ fetch
+Next.js App
+  ├── Server Component → fetch(后端 API) → 服务端渲染
+  ├── Client Component → fetch(/api/proxy/...) → 通过 Next.js 反向代理
+  └── next.config.ts → rewrites 代理到后端
+```
+
+**Server Component 中调后端 API：**
+
+```tsx
+// Server Component 直接 fetch 后端，数据在服务端拼好返回
+export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
+  const res = await fetch(`https://api.yourapp.com/products/${(await params).id}`);
+  const product = await res.json();
+  return <ProductDetail product={product} />;
+}
+```
+
+**next.config.ts 配置 rewrites（可选，避免跨域）：**
+
+```ts
+const nextConfig: NextConfig = {
+  async rewrites() {
+    return [
+      { source: "/api/:path*", destination: "https://api.yourapp.com/:path*" },
+    ];
+  },
+};
+```
+
+优势：
+- 后端 API 与前端**独立部署、独立扩展**
+- 电商核心逻辑（订单、支付）可用更适合的语言（Go / Java）
+- 前端可以随时换（Web / App / 小程序共用一套 API）
+
+---
+## Proxy 中间层（鉴权 + 国际化）
 
 文件：`src/proxy.ts`（Next.js 16 中 middleware 的演进形式）
 
 ### 流程
 
 ```
-请求进入 → proxy 检查 cookie token
-  ├── 公开路径 → 放行
-  └── 无 token → 重定向到 /?redirect=原路径
+请求进入 → proxy 解析 Accept-Language → 注入 x-locale 请求头
+         → 检查 cookie token
+           ├── 公开路径 → 放行
+           └── 无 token → 重定向到 /?redirect=原路径
 ```
 
 ### 公开路径（无需登录）
@@ -424,9 +482,15 @@ export async function GET(
 ### 核心代码
 
 ```ts
+import { getLocaleFromHeaders } from "@/lib/i18n";
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // ── 国际化：检测浏览器语言，设置请求头 ──
+  const locale = getLocaleFromHeaders(request.headers);
+
+  // ── 认证 ──
   const isPublicPath =
     pathname === "/" ||
     pathname.startsWith("/api/login") ||
@@ -442,7 +506,13 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  // 在请求头中注入 locale 信息，供 Server Component 使用
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-locale", locale);
+
+  return NextResponse.next({
+    request: { headers: requestHeaders },
+  });
 }
 
 export const config = {
@@ -457,7 +527,163 @@ export const config = {
 
 ---
 
-## Prisma + PostgreSQL
+## 国际化（i18n）
+
+> 基于 `negotiator` + `@formatjs/intl-localematcher` 的国际化方案，通过 Proxy 注入 `x-locale` 请求头实现语言检测。
+
+### 技术栈
+
+| 库 | 作用 |
+|------|------|
+| `negotiator` | 解析 `Accept-Language` 请求头 |
+| `@formatjs/intl-localematcher` | 从浏览器语言列表中匹配最佳语言 |
+| 动态 `import()` | 异步加载 JSON 字典 |
+
+### 核心文件
+
+| 文件 | 职责 |
+|------|------|
+| `src/lib/i18n.ts` | 语言类型定义、`getLocaleFromHeaders()` 检测、`getDictionary()` 异步加载字典、`Dictionary` 类型 |
+| `src/lib/get-dict.ts` | `getDictionaryFromHeaders()` — 快捷函数，一行获取当前请求的字典 |
+| `src/dictionaries/zh.json` | 中文翻译 |
+| `src/dictionaries/en.json` | 英文翻译 |
+| `src/proxy.ts` | 注入 `x-locale` 请求头（基于 `getLocaleFromHeaders`） |
+
+### 数据流
+
+```
+浏览器请求
+  → Proxy: 解析 Accept-Language → 写入 x-locale 头
+    → Server Component: headers().get("x-locale")
+      → 动态 import 对应字典 JSON
+        → 渲染翻译文本
+```
+
+### 在 Server Component 中使用
+
+```tsx
+import { getDictionaryFromHeaders } from "@/lib/get-dict";
+
+export default async function Page() {
+  const dict = await getDictionaryFromHeaders();
+  return <h1>{dict.nav.home}</h1>;
+}
+```
+
+### 核心代码
+
+**src/lib/i18n.ts** — 语言检测与字典加载：
+
+```ts
+import { match } from "@formatjs/intl-localematcher";
+import Negotiator from "negotiator";
+
+export type Locale = "zh" | "en";
+export const locales: Locale[] = ["zh", "en"];
+export const defaultLocale: Locale = "zh";
+
+/** 从 Accept-Language 中匹配最佳语言 */
+export function getLocaleFromHeaders(headers: Headers): Locale {
+  const negotiator = new Negotiator({
+    headers: Object.fromEntries(headers.entries()),
+  });
+  const languages = negotiator.languages();
+  try {
+    return match(languages, locales, defaultLocale) as Locale;
+  } catch {
+    return defaultLocale;
+  }
+}
+
+// 字典类型（与 JSON 结构对应）
+export type Dictionary = {
+  nav: Record<string, string>;
+  home: Record<string, string>;
+  i18n: {
+    title: string;
+    intro: string;
+    items: string[];
+  };
+  action: Record<string, string>;
+  common: Record<string, string>;
+};
+
+/** 从字典中读取指定 locale 的翻译 */
+export async function getDictionary(locale: Locale): Promise<Dictionary> {
+  const dicts: Record<Locale, () => Promise<Dictionary>> = {
+    zh: () => import("@/dictionaries/zh.json").then((m) => m.default as unknown as Dictionary),
+    en: () => import("@/dictionaries/en.json").then((m) => m.default as unknown as Dictionary),
+  };
+  return dicts[locale]();
+}
+```
+
+**src/lib/get-dict.ts** — 快捷函数：
+
+```ts
+import { headers } from "next/headers";
+import { getDictionary, type Locale } from "@/lib/i18n";
+
+/** 在 Server Component 中读取当前请求的语言字典 */
+export async function getDictionaryFromHeaders() {
+  const headersList = await headers();
+  const locale = (headersList.get("x-locale") || "zh") as Locale;
+  return getDictionary(locale);
+}
+```
+
+### 翻译文件示例
+
+**src/dictionaries/zh.json**（中文）：
+
+```json
+{
+  "nav": { "home": "首页", "about": "关于", "i18n": "国际化测试" },
+  "i18n": {
+    "title": "国际化测试页面",
+    "intro": "这个页面演示了 Next.js App Router 下的国际化方案。",
+    "items": ["选项一", "选项二", "选项三"]
+  }
+}
+```
+
+**src/dictionaries/en.json**（英文）：
+
+```json
+{
+  "nav": { "home": "Home", "about": "About", "i18n": "i18n Demo" },
+  "i18n": {
+    "title": "i18n Demo Page",
+    "intro": "This page demonstrates i18n with Next.js App Router.",
+    "items": ["Item One", "Item Two", "Item Three"]
+  }
+}
+```
+
+### 添加新语言
+
+1. 在 `src/lib/i18n.ts` 的 `Locale` 类型和 `locales` 数组中加入新语言标识
+2. 创建 `src/dictionaries/{lang}.json` 翻译文件
+3. 在 `getDictionary()` 中添加对应语言的动态 import
+
+### 注意事项
+
+- `getDictionaryFromHeaders()` 只能在 **Server Component** 中使用（调用了 `next/headers` 的 `headers()`）
+- **Client Component** 不能调 `headers()`，需要用 Context / Provider 把字典从 Server Component 向下传递
+- Proxy 中间件对所有匹配 `matcher` 的路由生效，**不区分**组件类型（Server / Client 都经过）
+
+### /i18n-test 测试页面
+
+页面位置：`app/i18n-test/page.tsx`（Server Component）
+
+展示内容：
+- 当前检测到的语言
+- 浏览器 `Accept-Language` 头
+- 支持的语言列表
+- 翻译文本列表
+- 所有导航项翻译
+
+---
 
 ### schema.prisma
 
@@ -636,6 +862,23 @@ pnpm start    # 生产模式启动
   "@prisma/adapter-pg": "^7.8.0",
   "pg": "^8.22.0",
   "use-immer": "^0.11.0",
-  "tailwindcss": "^4"
+  "tailwindcss": "^4",
+  "zod": "^4.4.3",
+  "negotiator": "^1.0.0",
+  "@formatjs/intl-localematcher": "^0.8.13",
+  "jsonwebtoken": "^9.0.3",
+  "bcryptjs": "^3.0.3"
 }
 ```
+
+### 按功能分类
+
+| 类别 | 依赖 |
+|------|------|
+| 框架 | `next`, `react`, `react-dom` |
+| 数据库 | `prisma`, `@prisma/client`, `@prisma/adapter-pg`, `pg` |
+| 国际化 | `negotiator`, `@formatjs/intl-localematcher` |
+| 认证 | `jsonwebtoken`, `bcryptjs` |
+| 状态管理 | `use-immer` |
+| 样式 | `tailwindcss`, `@tailwindcss/postcss` |
+| 校验 | `zod` |
