@@ -1,5 +1,59 @@
 # 常用插件
 
+
+### 国际化（i18n）
+
+| 插件 | 版本 | 用途 |
+|------|------|------|
+| `negotiator` | ^1.0.0 | 解析 HTTP `Accept-Language` 请求头 |
+| `@formatjs/intl-localematcher` | ^0.8.13 | 从浏览器语言列表匹配最佳语言 |
+| `@types/negotiator` | ^0.6.4 | negotiator TypeScript 类型 |
+
+### 数据库（Prisma + PostgreSQL）
+
+| 插件 | 版本 | 用途 |
+|------|------|------|
+| `prisma` | ^7.8.0 | ORM 框架（Schema 迁移、客户端生成） |
+| `@prisma/client` | ^7.8.0 | Prisma 客户端 |
+| `@prisma/adapter-pg` | ^7.8.0 | Prisma PostgreSQL 适配器 |
+| `pg` | ^8.22.0 | PostgreSQL 驱动 |
+
+### 认证与安全
+
+| 插件 | 版本 | 用途 |
+|------|------|------|
+| `jsonwebtoken` | ^9.0.3 | JWT 签发与验证 |
+| `@types/jsonwebtoken` | ^9.0.10 | JWT TypeScript 类型 |
+| `bcryptjs` | ^3.0.3 | 密码哈希 |
+| `@types/bcryptjs` | ^3.0.0 | bcrypt TypeScript 类型 |
+
+### 状态管理
+
+| 插件 | 版本 | 用途 |
+|------|------|------|
+| `use-immer` | ^0.11.0 | Immer 的 React Hook 封装，不可变状态更新 |
+
+### 数据校验
+
+| 插件 | 版本 | 用途 |
+|------|------|------|
+| `zod` | ^4.4.3 | Schema 声明式数据校验（登录/注册表单、API 参数） |
+
+### 样式
+
+| 插件 | 版本 | 用途 |
+|------|------|------|
+| `tailwindcss` | ^4 | Tailwind CSS v4，原子化样式 |
+| `@tailwindcss/postcss` | ^4 | PostCSS 插件 |
+
+### 环境工具
+
+| 插件 | 版本 | 用途 |
+|------|------|------|
+| `dotenv` | ^17.4.2 | 加载 `.env` 环境变量 |
+
+---
+
 ## vue数据缓存
 
 ```shell
