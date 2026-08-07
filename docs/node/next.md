@@ -882,3 +882,253 @@ pnpm start    # 生产模式启动
 | 状态管理 | `use-immer` |
 | 样式 | `tailwindcss`, `@tailwindcss/postcss` |
 | 校验 | `zod` |
+
+
+## SEO
+
+### robots 
+
+- 什么是robots?
+
+- robots是来设置是否让爬虫机器人抓取我们页面的协议
+
+
+```ts
+// 在next.js种你需要在app 下 添加robots.ts
+
+import type { MetadataRoute } from 'next'
+
+export default function robots(): MetadataRoute.Robots {
+    return {
+        rules: [
+            {
+                userAgent: '*',
+                disallow: ['/api/', '/admin/'],  // 兜底
+            },
+            {
+                userAgent: 'Googlebot', //搜索引擎爬虫的名称
+                allow: '/', //允许访问的页面
+                disallow: '/api/', //不允许访问的页面 
+            },
+            {
+                userAgent: 'Baiduspider',
+                allow: '/',
+                disallow: '/api/',
+                crawlDelay: 10,
+            },
+            {
+                userAgent: 'Bingbot',
+                allow: '/',
+                disallow: '/api/',
+                crawlDelay: 10,
+            },
+            {
+                userAgent: 'YandexBot',
+                allow: '/',
+                disallow: '/api/',
+                crawlDelay: 10,
+            },
+            {
+                userAgent: 'Sogou spider',
+                allow: '/', 
+                disallow: '/api/',
+                crawlDelay: 10,
+            },
+        ],
+        // 你的网站地图在那？
+        sitemap: 'http://localhost:3000/sitemap.xml',
+    }
+} 
+```
+
+### sitemap
+
+- 什么是sitemap？
+
+-  sitemap.xml 是网站地图，用来向搜索引擎提供一批希望被发现的页面 URL。
+
+- 如果你是新网站路由还非常深，爬虫就很难看见，这时候你可以创建网站地图来告诉爬虫。
+
+
+```ts
+// 在next.js种你需要在app 下 创建 sitemap.ts
+
+
+import type { MetadataRoute } from 'next'
+
+// 这是动态的情况
+export async function generateSitemaps() {
+    const total = 150000
+    const size = 50000
+    const chunks = Math.ceil(total / size)
+
+    return Array.from({ length: chunks }, (_, index) => ({
+        id: index.toString(),
+    }))
+}
+
+export default async function sitemap({
+    id,
+}: {
+    id: string
+}): Promise<MetadataRoute.Sitemap> {
+    const page = Number(id) + 1
+    const pageSize = 100
+    const res = await fetch(
+        `https://jsonplaceholder.typicode.com/posts?_page=${page}&_limit=${pageSize}`
+    )
+    const posts = await res.json()
+
+    return posts.map((post: { id: number, body: string }) => ({
+        url: post.body,
+        lastModified: new Date(),
+        changeFrequency: 'daily',
+        priority: 0.5,
+    }))
+}
+
+```
+
+```ts
+import type { MetadataRoute } from 'next'
+export default function sitemap(): MetadataRoute.Sitemap {
+    return [
+        {
+            url: 'https://example.com',
+            lastModified: new Date(),
+            changeFrequency: 'yearly',
+            priority: 1,
+            images: ['http://localhost:3000/xxxxxxxxxx.jpg'],
+        },
+        {
+            url: 'https://example.com/about',
+            lastModified: new Date(),
+            changeFrequency: 'monthly',
+            priority: 0.8,
+            videos: [
+                {
+                    thumbnail_loc: 'http://localhost:3000/xxxxxxxxxx.jpg',
+                    title: '视频标题',
+                    description: '视频描述',
+                    duration: 100,
+                    publication_date: new Date(),
+                }
+            ]
+        },
+        {
+            url: 'https://example.com/blog',
+            lastModified: new Date(),
+            changeFrequency: 'weekly',
+            priority: 0.5,
+        },
+    ]
+}
+```
+
+
+### TDK
+
+- 什么是TDK？
+
+- TDK 是 Title、Description、Keywords 的缩写，是 SEO（搜索引擎优化）里的核心元信息，也常统称为页面的元数据。
+
+#### 全局TDK创建
+
+```ts
+// app/layout.tsx
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: '我是卖衣服的',
+  description: '大衣、校服、我啥都卖啊',
+  keywords: ['特别好', '优选'],
+};
+```
+
+#### 单独设置
+
+```ts
+// app/home/page.tsx
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: '这里是校服专区',
+  description: '啥样都有',
+  keywords: ['首页'],
+};
+
+export default function Page() {
+  return <div>首页</div>;
+}
+```
+
+
+#### 动态
+
+```ts
+export async function generateMetadata({ params }: Props, parent: ResolvingMetadata): Promise<Metadata> {
+    const { id } = await params;
+    const resolvedParent = await parent;
+    const res = await fetch(
+        `https://jsonplaceholder.typicode.com/posts/${id}`
+    );
+    if (!res.ok) {
+        return { title: '文章未找到' };
+    }
+    const data = await res.json();
+    return {
+        title: `${data.title} | ${resolvedParent.title?.absolute ?? '文章'}`,
+        description: data.body.slice(0, 150),
+        keywords: [data.title],
+        openGraph: {
+            title: 'Next.js',
+            description: 'The React Framework for the Web',
+            url: 'https://nextjs.org',
+            siteName: 'Next.js',
+            images: [
+                {
+                    url: 'https://nextjs.org/og.png',
+                    width: 800,
+                    height: 600,
+                },
+                {
+                    url: 'https://nextjs.org/og-alt.png',
+                    width: 1800,
+                    height: 1600,
+                    alt: 'My custom alt',
+                },
+            ],
+            locale: 'en_US',
+            type: 'website',
+        },
+    };
+}
+```
+
+#### Open Graph（OG）
+
+- 什么是Open Graph
+
+-  Open Graph 的主要作用是进行移动设备的分享，它的主要是目的生成卡片预览，因此 OG 与 SEO（点击率、品牌呈现）和 传播体验 都密切相关。
+
+
+```ts
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  openGraph: {
+    title: 'Apple',
+    description:
+      'Discover the innovative world of Apple and shop everything iPhone, iPad, Apple Watch, Mac, and Apple TV, plus explore accessories, entertainment, and expert device support.',
+    url: 'https://www.apple.com/',
+    siteName: 'Apple',
+    locale: 'en_US',
+    type: 'website',
+    images: [
+      {
+        url: 'https://www.apple.com/ac/structured-data/images/open_graph_logo.png?202604211141',
+      },
+    ],
+  },
+};
+```

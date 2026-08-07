@@ -59,6 +59,7 @@ export default withMermaid(
             { text: 'monorepo', link: '/config/monorepo' },
             { text: 'prisma', link: '/config/prisma' },
             { text: 'three', link: '/config/three' },
+            { text: 'Element Plus 命名空间', link: '/config/element-name-space' },
           ],
         },
         {
@@ -94,6 +95,7 @@ export default withMermaid(
               { text: 'monorepo', link: '/config/monorepo' },
               { text: 'prisma', link: '/config/prisma' },
               { text: 'three', link: '/config/three' },
+              { text: 'Element Plus 命名空间', link: '/config/element-name-space' },
             ],
           },
         ],
