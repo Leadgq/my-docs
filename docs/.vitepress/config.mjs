@@ -78,7 +78,13 @@ export default withMermaid(
             { text: 'langchain', link: '/question/langchain' },
           ],
         },
-        { text: '个人感悟', link: '/notes/mind' },
+        { 
+          text: '日志',
+          items: [
+            { text: '个人感悟', link: '/notes/mind' },
+            { text: '组件库', link: '/notes/component' },
+          ],
+        },
       ],
 
       // 侧边栏
@@ -157,8 +163,11 @@ export default withMermaid(
         ],
         '/notes/': [
           {
-            text: '个人感悟',
-            items: [{ text: '个人感悟', link: '/notes/mind' }],
+            text: '日志',
+            items: [
+              { text: '个人感悟', link: '/notes/mind' },
+              { text: '组件库相关', link: '/notes/component' },
+            ],
           },
         ],
       },
