@@ -179,7 +179,7 @@ export default withMermaid(
 
       // 页脚
       footer: {
-        message: '作者: leaderGq | 时间: 2023-2025',
+        message: '作者: leaderGq | 时间: 2023-2026',
       },
 
       // 搜索
