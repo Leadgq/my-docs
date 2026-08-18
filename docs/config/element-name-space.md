@@ -13,16 +13,8 @@ Ticket 子应用（Vue 3 + Element Plus）通过 qiankun 嵌入主应用。主�
 
 ---
 
-## 2. 相关 Git 提交
 
-| 仓库 | 提交 | 说明 |
-|------|------|------|
-| `1060-ticket` | `7003ef2` | 子应用：main.js / App.vue / utils.js / styles/element |
-| `yo-pc-ui` | `3ecf16c` | 组件库：namespace.js / vite.config / 样式 .el→.ep |
-
----
-
-## 3. 核心约定
+## 2. 核心约定
 
 以下三处 **必须同为 `ep`**，改一处需同步其余：
 
@@ -36,7 +28,7 @@ Ticket 子应用（Vue 3 + Element Plus）通过 qiankun 嵌入主应用。主�
 
 ## 4. 组件库（yo-pc-ui）
 
-根目录：`C:\Users\EDY\Desktop\yo-pc-ui`
+
 
 ### 4.1 定义 JS 常量
 
@@ -156,9 +148,9 @@ export default defineConfig({
 
 ---
 
-## 5. 子应用（1060-ticket）
+## 5. 子应用（也是会下载你的包的应用）
 
-根目录：`D:\project\1060-ticket\Astec.Ticket.Web`
+根目录：`你的项目`
 
 ### 5.1 入口注册组件库 + namespace
 
@@ -186,6 +178,7 @@ function render (props = {}) {
 
 ```vue
 <template>
+  <!-- element 提供  你可以修改成ElConfigProvider -->
   <YoConfigProvider :namespace="namespace">
     <div id="app">
       <router-view />
