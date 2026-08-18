@@ -149,8 +149,156 @@ export default {
 
 bem就是一种规范，何时产生block,何时产生element,什么时候产生修饰符，而这个也是element-plus实现样式的核心
 
-- element-plus 设计js运行时，就是dom
-- element-plus 设计css端在编译时，就产生对应的css(提前)
+- **B**lock：一块独立组件，例如按钮 `mb-button`
+- **E**lement：块内部的零件，用 `__` 连接，例如文字 `mb-button__text`
+- **M**odifier：块的变体，用 `--` 连接，例如成功色 `mb-button--success`
+- **State**：状态类，用 `is-` 前缀，例如禁用 `is-disabled`
+
+element-plus 两边一起写，类名才能对上：
+
+- js 运行时往 DOM 上挂 class（`useNamespace`）
+- css 编译时提前生成同名选择器（`@mixin b/e/m/when`）
+
+```mermaid
+flowchart LR
+  NS["命名空间 mb"] --> B["Block<br/>mb-button"]
+  B --> E["Element<br/>mb-button__text"]
+  B --> M["Modifier<br/>mb-button--success"]
+  B --> S["State<br/>mb-button.is-disabled"]
+```
+
+### 先看实际效果
+
+下面这组按钮就是 BEM 跑出来的样子。点一下会显示当前 DOM 上的 class。
+
+<script setup>
+import { computed, ref } from 'vue'
+
+const ns = 'mb-button'
+const active = ref('success')
+
+const demos = [
+  { id: 'primary', label: '主要按钮', extra: [`${ns}--primary`] },
+  { id: 'success', label: '成功按钮', extra: [`${ns}--success`] },
+  { id: 'warning', label: '警告按钮', extra: [`${ns}--warning`] },
+  { id: 'disabled', label: '禁用按钮', extra: [`${ns}--primary`, 'is-disabled'] },
+]
+
+const current = computed(() => demos.find(item => item.id === active.value) || demos[0])
+const classList = computed(() => [ns, ...current.value.extra])
+</script>
+
+<div class="bem-demo">
+  <div class="bem-demo__row">
+    <button
+      v-for="item in demos"
+      :key="item.id"
+      type="button"
+      class="mb-button"
+      :class="item.extra"
+      @click="active = item.id"
+    >
+      <span class="mb-button__icon" v-if="item.id === 'success'">✓</span>
+      <span class="mb-button__text">{{ item.label }}</span>
+    </button>
+  </div>
+
+  <pre class="bem-demo__code"><code>&lt;button class="{{ classList.join(' ') }}"&gt;
+  &lt;span class="mb-button__text"&gt;{{ current.label }}&lt;/span&gt;
+&lt;/button&gt;</code></pre>
+</div>
+
+<style scoped>
+.bem-demo {
+  margin: 16px 0 24px;
+  padding: 16px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg-soft);
+}
+
+.bem-demo__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.bem-demo__code {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: var(--vp-c-bg);
+  overflow: auto;
+}
+
+.mb-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  background: #409eff;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.mb-button__text {
+  display: inline-block;
+  line-height: 1;
+}
+
+.mb-button__icon {
+  font-size: 12px;
+}
+
+.mb-button--primary {
+  background: #409eff;
+}
+
+.mb-button--success {
+  background: #67c23a;
+}
+
+.mb-button--warning {
+  background: #e6a23c;
+}
+
+.mb-button.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+</style>
+
+对照关系（以命名空间 `mb` 为例）：
+
+| 你写的 | 实际长出来 |
+| --- | --- |
+| `@include b(button)` / `ns.b()` | `.mb-button` |
+| `@include e(text)` / `ns.e('text')` | `.mb-button__text` |
+| `@include e(icon)` / `ns.e('icon')` | `.mb-button__icon` |
+| `@include m(success)` / `ns.m('success')` | `.mb-button--success` |
+| `@include when(disabled)` / `ns.is('disabled')` | `.mb-button.is-disabled` |
+
+上面那组按钮，成功态完整 HTML 就是：
+
+```html
+<button class="mb-button mb-button--success">
+  <span class="mb-button__icon">✓</span>
+  <span class="mb-button__text">成功按钮</span>
+</button>
+```
+
+对应编译后的 CSS：
+
+```css
+.mb-button { display: flex; }                 /* b(button) */
+.mb-button.is-disabled { opacity: 0.5; }      /* when(disabled) */
+.mb-button--success { background: #67c23a; }  /* m(success) */
+.mb-button__text { display: inline-block; }   /* e(text) */
+```
 
 - 命名空间nameSpace -> config.scss
 
@@ -413,4 +561,27 @@ function handleClick(event: MouseEvent) {
     </span>
   </button>
 </template>
+```
+
+上面这个组件如果这样用：
+
+```vue
+<YoButton type="success" disabled>保存</YoButton>
+```
+
+运行时 DOM 就是：
+
+```html
+<button class="mb-button mb-button--success is-disabled">
+  <span class="mb-button__text">保存</span>
+</button>
+```
+
+`classes` 数组拆开看：
+
+```js
+ns.b()                         // 'mb-button'
+ns.m('success')                // 'mb-button--success'
+ns.is('disabled', true)        // 'is-disabled'
+ns.e('text')                   // 'mb-button__text'
 ```
