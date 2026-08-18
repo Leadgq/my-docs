@@ -24,11 +24,11 @@ packages:
 
 ```json
 "scripts": {
-		"web": "pnpm --filter @en/web dev",
-		"server": "pnpm --filter @en/server start:dev",
-		"ai": "pnpm --filter @en/server start:dev ai",
-		"all": "concurrently \"pnpm run web\" \"pnpm run server\" \"pnpm run ai\""
-	}
+  "web": "pnpm --filter @en/web dev",
+  "server": "pnpm --filter @en/server start:dev",
+  "ai": "pnpm --filter @en/server start:dev ai",
+  "all": "concurrently \"pnpm run web\" \"pnpm run server\" \"pnpm run ai\""
+ }
 ```
 
 在工程最外部的 package.json 中添加 scripts 命令
@@ -37,7 +37,6 @@ packages:
 pnpm --filter 的意思是指定包名启动命令
  @en/web 是每个工程中 package.json 中的 name 字段
 ```
-
 
 ## 如何将本地模块进行引入
 
@@ -91,7 +90,7 @@ packages 下的所有包都要拥有自己的package.json
 }
 ```
 
-2. 安装工作空间内的依赖：
+1. 安装工作空间内的依赖：
 
 ```bash
 pnpm install @vue/shared --workspace --filter @vue/reactivity
@@ -110,7 +109,7 @@ pnpm install @vue/shared --workspace --filter @vue/reactivity
 - 避免版本不一致导致的问题
 - 便于本地开发和调试
 
-3. esbuild 打包
+1. esbuild 打包
 
 ```js
 esbuild
@@ -141,4 +140,141 @@ const require = Module.createRequire(import.meta.url);
 
 // 获取当前文件的目录
 const __dirname = path.dirname(import.meta.url);
+```
+
+## turbo
+
+一个针对 JavaScript 和 TypeScript 的高性能 Monorepo（多项目代码仓库）构建系统。
+
+默认我们已经知道了monorepo
+
+- 下载turbo
+
+- 处理turbo.json
+
+```json
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [   // 这里可以没有
+    "tsconfig.base.json",
+    ".env"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "inputs":[
+          "**/*",
+        "!dist/**",
+        "!node_modules/**"
+      ]
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    }
+  }
+}
+```
+
+来到根提供命令
+
+```json
+  "scripts": {
+    "dev": "turbo dev",
+     "build": "turbo build",
+    "dev:playground": "turbo dev --filter=@spark/playground",
+    "dev:example": "turbo dev --filter=@spark/example",
+    "build:ui": "turbo build --filter=@spark/ui"
+  },
+```
+
+- 随便去一个包中
+
+```json
+  "name": "@spark/ui",
+  "version": "0.0.1",
+  "private": false,
+  "type": "module",
+  "sideEffects": ["**/*.css"],
+  //引入你的代码入口
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./src/styles.css"
+  },
+  // 你需要提供的文件
+  "files": ["dist", "src/styles.css"],
+  // 提供运行
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  // 注意，这里如果你不发包就会用本地
+  // 当你执行npm/pnpm publish的时候他会换成具体版本
+  "dependencies": {
+    "@spark/icons": "workspace:*",
+    "@spark/tokens": "workspace:*",
+    "@spark/utils": "workspace:*"
+  },
+  "devDependencies": {
+    // dev期间共享的全局ts配置
+    "@spark/typescript-config": "workspace:*",
+    // 这玩意控制打包非常好用
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.3"
+  }
+```
+
+- 创建 tsconfig.json
+
+```json
+{
+   // 共享配置
+  "extends": "@spark/typescript-config/base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}
+```
+
+- 创建tsup.config.ts
+
+```ts
+import { defineConfig } from "tsup";
+
+// 在这里控制你打包的风格
+export default defineConfig({
+  // 入口
+  entry: ["src/index.ts"],
+  // 格式
+  format: ["esm"],
+  dts: true,
+  clean: true,
+  // 排除依赖
+  external: [
+    "react",
+    "react-dom",
+    "@spark/tokens",
+    "@spark/utils",
+    "@spark/icons",
+  ],
+});
+```
+
+- 剩下的包一样的
+
+```
+ pnpm build -> turbo会执行打包分析用到的东西
+ 比如说 遇到了ui 它看见依赖了icon，它会去执行icon中的    "build": "tsup",
+ 随后在执行ui中build
 ```
