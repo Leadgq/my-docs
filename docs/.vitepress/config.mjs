@@ -38,6 +38,12 @@ export default withMermaid(
                 { text: 'css新特性', link: '/base/WebApi/css' },
               ],
             },
+            {
+              text: '设计模式',
+              items: [
+                { text: '设计模式', link: '/base/pattern' },
+              ],
+            },
           ],
         },
         {
@@ -123,6 +129,12 @@ export default withMermaid(
             items: [
               { text: 'api记录', link: '/base/WebApi/window' },
               { text: 'css新特性', link: '/base/WebApi/css' },
+            ],
+          },
+          {
+            text: '设计模式',
+            items: [
+              { text: '设计模式', link: '/base/pattern' },
             ],
           },
         ],
