@@ -38,6 +38,12 @@ export default withMermaid(
                 { text: 'css新特性', link: '/base/WebApi/css' },
               ],
             },
+            {
+              text: '设计模式',
+              items: [
+                { text: '设计模式', link: '/base/pattern' },
+              ],
+            },
           ],
         },
         {
@@ -83,6 +89,7 @@ export default withMermaid(
           items: [
             { text: '个人感悟', link: '/notes/mind' },
             { text: '组件库', link: '/notes/component' },
+            { text: 'HLS', link: '/notes/hls' },
           ],
         },
       ],
@@ -123,6 +130,12 @@ export default withMermaid(
             items: [
               { text: 'api记录', link: '/base/WebApi/window' },
               { text: 'css新特性', link: '/base/WebApi/css' },
+            ],
+          },
+          {
+            text: '设计模式',
+            items: [
+              { text: '设计模式', link: '/base/pattern' },
             ],
           },
         ],
@@ -167,6 +180,7 @@ export default withMermaid(
             items: [
               { text: '个人感悟', link: '/notes/mind' },
               { text: '组件库相关', link: '/notes/component' },
+              { text: 'HLS', link: '/notes/hls' },
             ],
           },
         ],
