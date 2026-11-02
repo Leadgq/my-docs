@@ -89,6 +89,7 @@ export default withMermaid(
           items: [
             { text: '个人感悟', link: '/notes/mind' },
             { text: '组件库', link: '/notes/component' },
+            { text: 'HLS', link: '/notes/hls' },
           ],
         },
       ],
@@ -179,6 +180,7 @@ export default withMermaid(
             items: [
               { text: '个人感悟', link: '/notes/mind' },
               { text: '组件库相关', link: '/notes/component' },
+              { text: 'HLS', link: '/notes/hls' },
             ],
           },
         ],
