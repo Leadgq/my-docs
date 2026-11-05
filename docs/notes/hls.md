@@ -224,3 +224,151 @@ flowchart TB
 | 录像 1 小时 | 1.8 GB | 0.9 GB |
 | 录像 24 小时 | 43.2 GB | 21.6 GB |
 | 录像 30 天 | 约 1.30 TB | 约 0.65 TB |
+
+## M3U8
+
+这里我们要知道#EXT-X-ENDLIST ，#EXT-X-MEDIA-SEQUENCE
+
+- #EXT-X-ENDLIST 告诉客户端，已经没有分片了 
+- #EXT-X-MEDIA-SEQUENCE 告诉客户端，当前播放列表中第一个分片的序列号
+
+```text
+#EXTM3U   ->  文件头，必须是第一行
+#EXT-X-VERSION: 3  ->  使用了那个协议
+#EXT-X-TARGERTDURATIION:3  -> 每个分片大小
+#EXT-X-MEDIA-SEQUENCE: 0    -> 清单里第一个分片的序号
+
+#EXT-X-MAP:URI="init.mp4"   ← 告诉播放器：先拉这个初始化文件（就是 moov） 这意味着这是fmp4格式
+
+#EXTINF:3.000, 
+seg0.ts  
+
+#EXTINF:3.000, 
+seg2.ts
+
+#EXT-X-ENDLIST     ← "清单到此为止"。有它 = 点播；没有它 = 直播 还有可能是EVENT
+```
+
+上述例子是.ts容器它中包含了视频的编码（h265|h264），音频编码(AAC、Opus)
+
+- 这里添加一个知识点，如果hls.js 只是让普通浏览具备播放M3U8的能力，并代表它一定能播放
+- 如果是苹果你直接把地址给他啥也不用做
+
+```js
+const video = document.getElementById('video');
+if (!video) throw new Error('找不到 #video 元素');
+if (!('MediaSource' in window)) throw new Error('浏览器不支持 MediaSource');
+
+const mediaSource = new MediaSource();
+const objectUrl = URL.createObjectURL(mediaSource);
+const controller = new AbortController();
+const { signal } = controller;
+let failed = false;
+let disposed = false;
+let objectUrlReleased = false;
+
+function releaseObjectUrl() {
+  if (objectUrlReleased) return;
+  URL.revokeObjectURL(objectUrl);
+  objectUrlReleased = true;
+}
+
+function fail(error) {
+  if (failed || disposed) return;
+  failed = true;
+  console.error('MSE 加载失败：', error);
+  controller.abort();
+  releaseObjectUrl();
+}
+
+async function fetchResource(url) {
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error(`${url} 请求失败：HTTP ${response.status}`);
+  return response;
+}
+
+function logBuffered() {
+  const ranges = [];
+  for (let i = 0; i < video.buffered.length; i++) {
+    ranges.push([video.buffered.start(i), video.buffered.end(i)]);
+  }
+  console.log('video.buffered（秒）：', ranges);
+}
+
+async function onSourceOpen() {
+  releaseObjectUrl();
+  try {
+    const response = await fetchResource('/video/media-info.json');
+    const { mimeType } = await response.json();
+    if (typeof mimeType !== 'string' || !MediaSource.isTypeSupported(mimeType)) {
+      throw new Error(`无效或不支持的 MIME：${mimeType}`);
+    }
+
+    const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+    sourceBuffer.addEventListener('error', () => {
+      fail(new Error('SourceBuffer 解析媒体失败，请检查片段格式与 MIME'));
+    }, { signal });
+    sourceBuffer.addEventListener('abort', () => {
+      fail(new Error('SourceBuffer 追加操作被中止'));
+    }, { signal });
+
+    const queue = [];
+    for (const name of ['init.mp4', 'seg1.m4s', 'seg2.m4s', 'seg3.m4s']) {
+      const response = await fetchResource(`/video/${name}`);
+      queue.push({ name, data: await response.arrayBuffer() });
+    }
+
+    function appendNext() {
+      if (failed || disposed || sourceBuffer.updating) return;
+      try {
+        if (mediaSource.readyState !== 'open') {
+          throw new Error(`MediaSource 当前状态：${mediaSource.readyState}`);
+        }
+        if (queue.length > 0) {
+          const { name, data } = queue.shift();
+          console.log('追加：', name);
+          sourceBuffer.appendBuffer(data);
+        } else {
+          sourceBuffer.removeEventListener('updateend', onUpdateEnd);
+          mediaSource.endOfStream();
+          console.log('所有片段追加完成，请点击 video 的播放按钮');
+        }
+      } catch (error) {
+        fail(error);
+      }
+    }
+
+    function onUpdateEnd() {
+      if (failed || disposed) return;
+      logBuffered();
+      appendNext();
+    }
+
+    sourceBuffer.addEventListener('updateend', onUpdateEnd, { signal });
+    appendNext();
+  } catch (error) {
+    fail(error);
+  }
+}
+mediaSource.addEventListener('sourceopen', onSourceOpen, { once: true, signal });
+mediaSource.addEventListener('sourceclose', () => {
+  fail(new Error('MediaSource 意外关闭'));
+}, { signal });
+video.addEventListener('error', () => {
+  fail(new Error(`video 错误：${video.error?.message || video.error?.code || '未知错误'}`));
+}, { signal });
+video.src = objectUrl;
+
+function dispose() {
+  if (disposed) return;
+  disposed = true;
+  controller.abort();
+  releaseObjectUrl();
+  video.removeAttribute('src');
+  video.load();
+}
+
+window.addEventListener('pagehide', dispose, { once: true, signal });
+```
+
+上述代码就是Hls内部的实现原理，可以看到它内部并没有做流的编码转换(h265->h264),如果浏览器不支持当前编码还是不行
