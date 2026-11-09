@@ -1,4 +1,4 @@
-# 流媒体
+# 流媒体：HLS、容器与编码
 
 ## 先分清层级
 
@@ -6,369 +6,389 @@
 
 | 层级 | 常见名字 | 作用 |
 | --- | --- | --- |
-| 播放列表 | `.m3u8` | 告诉播放器有哪些分片、按什么顺序播 |
-| 文件后缀 | `.ts`、`.mp4`、`.m4s` | 只是文件名，对应下面的容器 |
-| 容器 | MPEG-TS、MP4、fMP4 | 压缩后的数据怎么装箱、怎么切片 |
-| 视频编码 | H.264、H.265、AV1 | 画面怎么压缩 |
+| 流媒体协议 | HLS | 规定播放列表、媒体分片和客户端加载规则，通常通过 HTTP(S) 分发 |
+| 播放列表 | M3U8 | UTF-8 文本，描述可选码率或媒体分片的地址、时长等信息 |
+| 文件后缀 | `.ts`、`.mp4`、`.m4s` | 文件名的约定，不能只靠后缀判断实际内容 |
+| 容器 | MPEG-TS、MP4 / fMP4、MPEG-PS | 组织压缩后的音视频数据及时间戳、索引等信息 |
+| 视频编码 | H.264 / AVC、H.265 / HEVC、AV1 | 画面怎么压缩 |
 | 音频编码 | AAC、Opus | 声音怎么压缩 |
 
-对应关系：
+下面是常见的 HLS 搭配，不表示任意容器、编码都能自由组合：
 
 ```text
-.m3u8 播放列表
-  └── .ts 或 .m4s 分片（容器）
-        ├── 视频：H.264 / H.265 / AV1
-        └── 音频：AAC / Opus
+主播放列表（可选，列出不同码率）
+  └── 媒体播放列表（列出分片）
+        ├── MPEG-TS 分片：常见 H.264 + AAC
+        └── fMP4 分片：常见 H.264 / HEVC + AAC，另需初始化段
 ```
 
-`.ts` 是 MPEG-TS 分片的常见后缀，`.mp4` 是 MP4 的常见后缀，`.m4s` 是 fMP4 分片的常见后缀。`.m4s` 和 fMP4 是同一层，不是另一种容器。
+`.m4s` 是文件后缀，fMP4 是分片式 MP4 的组织方式，两者属于不同层级。MP4 基于 ISO BMFF；fMP4 仍使用这套盒子体系，不是与 MP4 无关的容器。
 
-## 容器格式与编码格式
+容器能装某种编码，不等于 HLS 规范、播放器和目标设备都支持这种组合。AV1、Opus 等需要另外核对封装、客户端实现和设备能力；不能因为它们是编码格式，就默认能放进任意 TS / fMP4 流播放。
 
-## 容器
+## 浏览器能播什么
 
-什么是容器: 它决定压缩后的数据如何组织和保存
+H.264 + AAC + MP4 是兼容性较广的组合，但不能说浏览器一定能播放 H.264。实际支持还受操作系统、浏览器构建、编码的 Profile / Level、位深、分辨率等影响；解码能力也可能由操作系统或硬件提供。
 
-| 类型 | 名称 | 常见后缀 | 说明 |
-| --- | --- | --- | --- |
-| 媒体容器 | MPEG-TS | `.ts` | 传统 HLS 常用的分片容器 |
-| 媒体容器 | MPEG-4 | `.mp4` | 常见的音视频文件容器 |
-| 媒体容器 | fMP4 | `.m4s` | 分片式 MP4。现在的 HLS 也常用它做分片 |
+播放需要几个条件同时满足：
 
-## 编码
+| 条件 | 需要检查什么 |
+| --- | --- |
+| 编码 | 浏览器是否支持实际使用的音视频编码及其参数 |
+| 容器 | 播放器是否能解析该容器，或先转封装成支持的格式 |
+| 播放路径 | 直接播放 MP4、原生 HLS 和通过 MSE 播放的支持范围可能不同 |
+| 资源访问 | 地址、鉴权、跨域、HTTPS、加密与 DRM 等是否满足要求 |
 
-分为两种: 音频编码和视频编码
+直接播放可用 `video.canPlayType(mimeType)` 初步探测；MSE 路径可用 `MediaSource.isTypeSupported(mimeType)`。MIME 应包含实际的 codecs 参数，探测通过仍需实际加载验证。参见 [HTML 媒体能力探测](https://html.spec.whatwg.org/multipage/media.html#dom-navigator-canplaytype-dev)。
 
-| 类型 | 名称 | 说明 |
-| --- | --- | --- |
-| 视频编码 | H.264 / AVC | 视频压缩，兼容性广 |
-| 视频编码 | H.265 / HEVC | 通常在相近画质下更节省码率 |
-| 视频编码 | AV1 | 更现代的视频压缩编码 |
+## MP4 与 moov
 
-| 类型 | 名称 | 说明 |
-| --- | --- | --- |
-| 音频编码 | AAC | 常见的音频压缩格式 |
-| 音频编码 | Opus | 高效音频编码，兼容性取决于封装与设备 |
+普通非分片 MP4 中，`mdat` 保存压缩后的媒体样本；`moov` 保存轨道、编码配置、时长及样本表等元数据。它不只是一个简单的“索引盒”。
 
-## 浏览器能播的格式
+- `moov` 可以位于媒体数据之前或之后。将它移到前面（常称 fast start），有利于边下载边播放。
+- `moov` 在尾部时，支持范围请求的服务器可让播放器先读取尾部；并不一定要下载完整文件才能播放。
+- `stco` / `co64` 记录媒体 chunk 的绝对文件偏移，通常指向 `mdat` 内的数据，不是 `mdat` 盒子头。
 
-浏览器一定能播放 H.264 的格式，因为浏览器中内置了解码器。
+下面只是普通 MP4 的简化结构示意，不是某个实际文件的解析结果；真实层级和偏移必须检查文件：
 
-video 的真正播放要三层都能对上：
-
-| 层 | 常见搭配 | 规范 | 作用 |
-| --- | --- | --- | --- |
-| 编码 | H.264 / AVC | ITU-T H.264，也叫 MPEG-4 Part 10 | 画面怎么压缩 |
-| 容器 | MP4 | ISO BMFF，MPEG-4 Part 12 / Part 14 | 把压好的音视频装进一个文件 |
-| 传输 | HTTP | 普通 GET | 把 `.mp4` 下载下来再解码 |
-
-### moov
-
-`moov` 是 MP4 里的索引盒。画面和声音的字节在 `mdat` 里，`moov` 只告诉播放器去哪读、用什么编码、每一帧多长。
-
-浏览器打开地址只会播放画面。`moov` 是文件里的二进制盒子，播放器不会把它显示出来。
-
-[oceans.mp4](http://vjs.zencdn.net/v/oceans.mp4) 就是这样：文件大约 23MB，第 28 字节开始是 `moov`（约 16KB），第 16338 字节才是真正的画面 `mdat`。
-
-```jsonc
-{
-  "type": "moov", // 索引。画面字节不在这里
-  "boxes": [
-    {
-      "type": "mvhd",
-      "timescale": 1000, // 1 秒拆成 1000 份
-      "duration": 10000 // 10000 / 1000 = 10 秒
-    },
-    {
-      "type": "trak", // 一条轨道。视频、音频各有一条
-      "boxes": [
-        {
-          "type": "tkhd",
-          "trackId": 1,
-          "width": 1920,
-          "height": 1080
-        },
-        {
-          "type": "hdlr",
-          "handlerType": "vide" // vide 是视频，soun 是音频
-        },
-        {
-          "type": "stsd",
-          "entries": [{ "type": "avc1" }] // avc1 = 这条轨道是 H.264
-        },
-        {
-          "type": "stco",
-          "chunkOffsets": [16338] // 画面在文件中的字节位置，指向 mdat
-        }
-      ]
-    }
-  ]
-}
+```text
+ftyp
+moov
+  mvhd                         影片级时基、时长等
+  trak                         一条轨道，音视频通常分别建轨
+    tkhd                       轨道 ID、显示尺寸等
+    mdia
+      mdhd                     该轨道的时基、时长等
+      hdlr                     vide 表示视频，soun 表示音频
+      minf
+        stbl
+          stsd                 样本描述，如 avc1 及 avcC 编码配置
+          stts / ctts           解码时序 / 显示时间偏移（ctts 可选）
+          stsc / stsz           chunk 与样本的映射 / 样本大小
+          stco 或 co64          chunk 在文件中的字节偏移
+mdat                           实际媒体样本
 ```
+
+fMP4 会将各片段的时间和样本信息放进 `moof`，不能把这份普通 MP4 的完整样本表结构直接套到 fMP4 初始化段上。
 
 ## MPEG-TS
 
-TS 是 Transport Stream（传输流）的缩写
+TS 是 Transport Stream（传输流）的缩写。标准 TS 包长为 **188 字节**，不是 188 个字符；其中包含包头，因此并非每包都有 188 字节的媒体负载。
 
-- 特征使用188字符的传输包
-- 通过PID标识不同的数据流
-- 通过 PAT、PMT 等表描述节目和音视频流关系。
-- 通过 PTS、DTS 等时间戳保证音视频时序。
-
-一层套一层。M3U8 里没有画面，它只记下每个小包裹的地址。真正的 H.264/AAC 在 `.ts` 里面，被拆进很多个 188 字节的盒子。fMP4（`.m4s`）是另一种小包裹，不走这 188 字节的盒子。
+- PID 标识不同用途的数据流，如节目表、视频或音频。
+- PAT / PMT 描述节目与音视频流的关系，不是每个 TS 包都同时带这两张表。
+- 音视频通常先封装成 PES，再拆入多个 TS 包。
+- PTS / DTS 位于适用的 PES 头中，并非每个 TS 包的包头都有；PCR 位于部分 TS 包的适配字段中，帮助恢复时钟。
 
 ```mermaid
 flowchart TB
-  http["协议 · HTTP<br/>一次只送一个 2–6 秒的小包裹"]
+  playlist["M3U8 媒体播放列表：分片地址、时长等"]
+  segment["通过 HTTP(S) 请求 1.ts、2.ts 等分片"]
+  packets["每个 TS 分片由许多 188 字节的 TS 包组成"]
+  tables["PAT / PMT：节目与流信息"]
+  pes["媒体 PID 的负载重组为 PES：可带 PTS / DTS"]
+  media["PES 负载：H.264 / AAC 等压缩数据"]
 
-  subgraph list["清单 · M3U8<br/>没有视频，只写：1.ts、2.ts……"]
-    direction TB
-
-    subgraph pkg["小包裹 · 1.ts"]
-      direction TB
-
-      subgraph box["TS 盒子 · 固定 188 字节 · 很多个拼成这个文件"]
-        direction TB
-        table["PAT / PMT<br/>告诉播放器里面有哪几路流"]
-        stamp["PTS / DTS<br/>这盒数据该接在哪一秒"]
-        cargo["编码 · H.264 / AAC<br/>真正的画面和声音"]
-        table --- stamp --- cargo
-      end
-    end
-
-    next["下一个小包裹 · 2.ts<br/>网络差就改送 720p<br/>时间戳能接上上一秒"]
-  end
-
-  http --> list
+  playlist --> segment
+  segment --> packets
+  packets --> tables
+  packets --> pes
+  pes --> media
 ```
 
-| 层 | 常见搭配 | 作用 |
-| --- | --- | --- |
-| 传输 | HTTP | 一次只送一个 2–6 秒的小包裹。网络好送 1080p，网络差下一包改送 720p |
-| 容器 | MPEG-TS | 不压缩画面。把压好的数据切进 188 字节的盒子，拼成 `.ts`。盒子上有 PTS/DTS，文件里还有 PAT/PMT |
-| 编码 | H.264 / AAC | 真正的画面和声音。同一套编码可以装进 MPEG-TS，也可以装进 fMP4，换容器不用重新压缩 |
+M3U8 只引用媒体资源，不包含 TS 文件本身。HTTP 负责传输资源，不负责选择清晰度。播放器根据带宽、缓冲等情况，从服务端预先提供的多个码率版本中选择；服务端没有准备 720p 时，播放器不能自动把 1080p 压成 720p。
 
-## Fmp4
+分片时长由内容制作配置决定，2–6 秒只是常见量级，不是 HTTP 或 HLS 的固定要求。客户端也不必严格一次只请求一个分片。
 
-fMP4 是 fragmented MP4 的缩写，也叫分片 MP4。它和普通 MP4 是同一套盒子体系，只是把索引拆开了：先下一个初始化文件（里面有 `moov`），后面每个 2–6 秒的小包裹只带 `moof` + `mdat`。
+## fMP4
 
-一层套一层。M3U8 里没有画面，它只记下初始化文件和每个 `.m4s` 的地址。真正的 H.264/AAC 在 `.m4s` 的 `mdat` 里。不走 188 字节的 TS 盒子。
+fMP4 是 fragmented MP4 的缩写。HLS 中通常先加载初始化段，再加载媒体分片：
+
+- 初始化段常命名为 `init.mp4`，包含 `ftyp` 和 `moov`，描述轨道、编码配置等，不是只有 `moov`。
+- 媒体分片常命名为 `.m4s`，基本结构是 `moof` + `mdat`，还可能有 `styp` 等盒子。
+- `tfdt` 给出轨道片段的基准解码时间；`tfhd` / `trun` 等共同描述样本的时长、大小、偏移等，部分默认值还可来自初始化段的 `trex`。
 
 ```mermaid
 flowchart TB
-  http["协议 · HTTP<br/>先送初始化文件，再一次一个 .m4s"]
+  playlist["M3U8：EXT-X-MAP 和媒体分片 URI"]
+  init["初始化段 init.mp4：ftyp + moov"]
+  segment["媒体分片 1.m4s：可选 styp + moof + mdat"]
+  metadata["moof：该片段的轨道、时间及样本信息"]
+  media["mdat：压缩后的音视频样本"]
+  player["播放器先使用初始化信息，再处理媒体分片"]
 
-  subgraph list["清单 · M3U8<br/>没有视频，只写：init.mp4、1.m4s、2.m4s……"]
-    direction TB
-
-    init["初始化 · init.mp4<br/>只有 moov。告诉播放器有几路流、是什么编码"]
-
-    subgraph pkg["小包裹 · 1.m4s"]
-      direction TB
-
-      subgraph box["fMP4 片段 · moof + mdat"]
-        direction TB
-        moof["moof<br/>这一段的索引。tfdt / trun 管时间戳和偏移"]
-        mdat["mdat · 编码 H.264 / AAC<br/>真正的画面和声音"]
-        moof --- mdat
-      end
-    end
-
-    next["下一个小包裹 · 2.m4s<br/>网络差就改送 720p<br/>时间戳能接上上一秒"]
-    init --> pkg
-  end
-
-  http --> list
+  playlist --> init
+  playlist --> segment
+  segment --> metadata
+  segment --> media
+  init --> player
+  metadata --> player
+  media --> player
 ```
 
-| 层 | 常见搭配 | 作用 |
+初始化段和媒体分片可以是不同文件，也可以通过字节范围引用同一资源中的不同部分。上述盒子结构可参照 [W3C ISO BMFF 字节流格式](https://www.w3.org/TR/mse-byte-stream-format-isobmff/)。
+
+TS 转 fMP4 叫转封装（transmux / remux）；H.265 转 H.264 叫转码（transcode）。目标容器和客户端支持原编码时，通常可以只转封装，无须重新压缩音视频，但仍可能需要调整码流表示、时间戳和编码配置。不能通过改文件后缀完成转换。
+
+切换清晰度还需要不同版本的时间线和关键帧对齐，并正确处理初始化信息、编码兼容性等条件，不是时间戳连续就一定能切换。
+
+## MPEG-PS 与监控
+
+PS 是 Program Stream（节目流）的缩写，也属于容器 / 系统层格式。它既用于存储，也可承载网络传输中的音视频，不能简单等同于录像文件格式。
+
+在 GB/T 28181 监控联网场景中，PS over RTP 很常见。标准还涉及视音频基本流的 RTP 封装及不同业务的媒体传输要求，不能笼统写成“所有 RTP 负载必须是 PS”。应按所采用的标准版本、业务和设备协商结果确认。标准信息见 [公安标准化信息服务平台：GB/T 28181-2022](https://ywtb.mps.gov.cn/gabzh/portal/stdDetail/313810)。
+
+为什么常用 PS？主要是标准约定、已有设备支持和互联互通的要求，不能单凭“监控不切台”推导出 TS 不适合监控。TS 也能只承载一个节目，实际开销取决于复用、填充和节目表发送频率等。
+
+为什么不直接用普通 MP4？普通 MP4 如果在结束录制时才写完关键元数据，异常断电可能导致文件无法直接播放；但这取决于录制与落盘策略。fMP4、分段录制、定期保存元数据都能改善恢复能力。PS / TS 也可能丢失未落盘的数据，恢复播放还受关键帧和码流完整性影响，不能保证“最多只丢最后几秒”。
+
+## 为什么选择 H.265
+
+H.265 通常比 H.264 有更高的压缩效率，但“相同画质一定节省一半带宽和空间”不是保证。收益取决于内容、编码器、参数与画质评价方式，还要考虑编码成本和客户端解码兼容性。
+
+存储量首先由实际平均码率和录制时长决定。下面**假设** H.264 为 4 Mbps、H.265 为 2 Mbps，只计算视频数据，不含音频、容器、网络或文件系统开销，也不代表两种编码在这些码率下一定画质相同：
+
+| 指标 | H.264（假设 4 Mbps） | H.265（假设 2 Mbps） |
 | --- | --- | --- |
-| 传输 | HTTP | 先下 `init.mp4`，再一次只送一个 2–6 秒的 `.m4s`。网络好送 1080p，网络差下一包改送 720p |
-| 容器 | fMP4 | 不压缩画面。初始化文件带 `moov`，每个分片是 `moof` + `mdat`，常见后缀 `.m4s`。时间戳在 `tfdt` / `trun` |
-| 编码 | H.264 / AAC | 真正的画面和声音。和 MPEG-TS 用的是同一套编码，换容器不用重新压缩 |
-
-和 MPEG-TS 的差别：`.ts` 不能直接当 fMP4 用。编码可以共用，盒子要转封装。
-
-## MPEG-PS
-
-全称: Program Stream
-主要用途：  文件存储、录像
-
-编码： h.264 /  h.265
-
-使用范围：跨级联网的 IPC（网络摄像机）、NVR/DVR 录像机以及视频平台。
-
-为什么要选择 MPEG-PS作为监控的容器?
-
-- 标准名称：GB/T 28181（全称《公共安全视频监控联网系统信息传输、交换、控制技术要求》）。
-- 规范内容：该标准规定了视频监控系统中，音视频媒体流在网络传输时，必须采用 RTP 协议传输，而 RTP 的负载（Payload）必须采用 PS（Program Stream，节目流，基于 ISO/IEC 13818-1）封装格式（或者在特定条件下采用视音频基本流数据）
-
-为什么不选择mp4?
-
-- MP4 的索引信息（moov）通常写在文件的开头或结尾。如果监控录像在录制过程中突然断电，整个 MP4 文件就会直接损坏、无法播放。而 PS 流是流式结构，断电顶多损失最后几秒钟，前面的画面依然可以正常读取。
-
-为什么不用 TS？
-
-- TS（传输流）是面向广播电视设计的，里面带有 PAT/PMT 等复杂的节目表，适合“一个频带传几十个电视台、观众随时切台”的场景。监控不需要切台，用 TS 会产生不必要的带宽浪费。
-
-## 为什么选择265？
-
-- 带宽更省，传输相同画质只需要264一半的带宽
-- 最重要的是省钱，再相同画质下265会只需要264一半的空间
-
-例子
-
-| 指标 | H.264 | H.265 |
-| --- | --- | --- |
-| 平均码率 | 4 Mbps | 2 Mbps |
 | 录像 1 小时 | 1.8 GB | 0.9 GB |
 | 录像 24 小时 | 43.2 GB | 21.6 GB |
-| 录像 30 天 | 约 1.30 TB | 约 0.65 TB |
+| 录像 30 天 | 1.296 TB | 0.648 TB |
 
-## M3U8
+计算公式：字节数 = 码率（bit/s）× 时长（秒）÷ 8。这里 GB / TB 使用十进制单位，1 GB = 10⁹ 字节、1 TB = 10¹² 字节。
 
-这里我们要知道#EXT-X-ENDLIST ，#EXT-X-MEDIA-SEQUENCE
+## M3U8 播放列表
 
-- #EXT-X-ENDLIST 告诉客户端，已经没有分片了 
-- #EXT-X-MEDIA-SEQUENCE 告诉客户端，当前播放列表中第一个分片的序列号
+HLS 有两类核心播放列表：主播放列表列出不同码率 / 分辨率等版本，媒体播放列表列出具体媒体分片。下面的标签和分片示例属于媒体播放列表。
 
-```text
-#EXTM3U   ->  文件头，必须是第一行
-#EXT-X-VERSION: 3  ->  使用了那个协议
-#EXT-X-TARGERTDURATIION:3  -> 每个分片大小
-#EXT-X-MEDIA-SEQUENCE: 0    -> 清单里第一个分片的序号
+| 标签 | 含义 |
+| --- | --- |
+| `#EXTM3U` | 文件标识，必须是第一行 |
+| `#EXT-X-VERSION` | 使用这些标签与功能所需的协议兼容版本，不是编码版本 |
+| `#EXT-X-TARGETDURATION` | 目标分片时长，单位秒，取整数；不是文件大小。按 RFC 8216，各 EXTINF 时长四舍五入到整数后不得超过它 |
+| `#EXTINF` | 紧随其后的媒体分片时长，单位秒 |
+| `#EXT-X-MEDIA-SEQUENCE` | 列表中第一个媒体分片的序列号；后续依次加一，与文件名无关，省略时默认为 0 |
+| `#EXT-X-MAP` | 声明后续分片所需的媒体初始化区段；fMP4 HLS 需要它，但它不是只用于 fMP4 的格式标识 |
+| `#EXT-X-PLAYLIST-TYPE` | 可选的 VOD / EVENT 类型；VOD 不允许更新，EVENT 允许向末尾追加 |
+| `#EXT-X-ENDLIST` | 不会再向这个媒体播放列表添加分片；不是“当前列表为空”，也不代表必然是 VOD |
 
-#EXT-X-MAP:URI="init.mp4"   ← 告诉播放器：先拉这个初始化文件（就是 moov） 这意味着这是fmp4格式
+### TS 点播示例
 
-#EXTINF:3.000, 
-seg0.ts  
-
-#EXTINF:3.000, 
-seg2.ts
-
-#EXT-X-ENDLIST     ← "清单到此为止"。有它 = 点播；没有它 = 直播 还有可能是EVENT
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:3
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXTINF:3.000,
+seg0.ts
+#EXTINF:3.000,
+seg1.ts
+#EXT-X-ENDLIST
 ```
 
-上述例子是.ts容器它中包含了视频的编码（h265|h264），音频编码(AAC、Opus)
+### fMP4 点播示例
 
-- 这里添加一个知识点，如果hls.js 只是让普通浏览具备播放M3U8的能力，并代表它一定能播放
-- 如果是苹果你直接把地址给他啥也不用做
+```m3u8
+#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-TARGETDURATION:3
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXT-X-MAP:URI="init.mp4"
+#EXTINF:3.000,
+seg0.m4s
+#EXTINF:3.000,
+seg1.m4s
+#EXT-X-ENDLIST
+```
+
+第二个示例选择版本 7；按 RFC 8216，普通媒体播放列表使用 `EXT-X-MAP` 至少需要版本 6，因此不能沿用前一个 TS 示例的版本 3。标签行中不要附加箭头或中文解释，以免被当成标签内容。
+
+进行中的直播通常没有 `ENDLIST`，滑动窗口可以移除旧分片，此时首分片序列号随之增加。EVENT 播放列表只能追加，活动结束后也可以添加 `ENDLIST`；直播结束时同样可以添加它，所以不能用“有它就是点播，没有就是直播”来分类。标签语义参见 [RFC 8216 第 4、6、7 节](https://www.rfc-editor.org/rfc/rfc8216.html)。
+
+## 原生 HLS、hls.js 与 MSE
+
+Safari 等环境常提供原生 HLS 支持，可以将 M3U8 地址赋给 `video.src`；但仍需检查实际环境、资源访问和媒体兼容性，不能只按“苹果设备”判断一定可播。
+
+hls.js 提供播放列表解析、分片加载、码率选择、缓冲管理等能力。TS 输入通常会转封装为 fMP4，再交给 MSE；已有的 fMP4 分片通常直接交给 MSE。hls.js 不会自动把 H.265 转成 H.264，因此浏览器缺少对应解码能力时，仍需服务端转码或提供另一种编码版本。参见 [hls.js 官方说明](https://github.com/video-dev/hls.js)。
+
+### MSE 追加片段示例
+
+下面只演示“请求已经制作好的 fMP4 → 依次追加到 SourceBuffer”，不是完整的 hls.js 实现，也不会读取 M3U8 或处理 TS、直播、切清晰度、加密和缓冲回收。
+
+运行前需要：
+
+- 页面提供 `<video id="video" controls></video>`，在元素创建后运行脚本。
+- 同源 HTTP(S) 服务提供 `/video/init.mp4` 和 `/video/seg0.m4s`、`seg1.m4s`；这些文件必须来自同一套连续时间线，并与初始化段匹配。
+- `/video/media-info.json` 提供真实的 MIME / codecs。下面的值仅是假设素材为 AVC + AAC-LC 的示例，必须按实际轨道和参数生成，不能照抄用于 HEVC 等素材。
+- 示例将音视频复用到同一个 SourceBuffer；若素材是音视频分轨，需要分别加载初始化段并管理各自的 SourceBuffer。
+
+```json
+{
+  "mimeType": "video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\""
+}
+```
+
+脚本按片段下载、追加，并等待 `updateend` 后处理下一段。只适合少量短片段；大文件或直播还需要限制前向缓冲、清理旧数据、处理配额不足及重试等。点击视频控件播放，示例不主动触发自动播放。
 
 ```js
 const video = document.getElementById('video');
-if (!video) throw new Error('找不到 #video 元素');
-if (!('MediaSource' in window)) throw new Error('浏览器不支持 MediaSource');
 
-const mediaSource = new MediaSource();
-const objectUrl = URL.createObjectURL(mediaSource);
-const controller = new AbortController();
-const { signal } = controller;
-let failed = false;
-let disposed = false;
-let objectUrlReleased = false;
-
-function releaseObjectUrl() {
-  if (objectUrlReleased) return;
-  URL.revokeObjectURL(objectUrl);
-  objectUrlReleased = true;
+if (!(video instanceof HTMLVideoElement)) {
+  throw new Error('找不到 #video 视频元素');
 }
 
-function fail(error) {
-  if (failed || disposed) return;
-  failed = true;
-  console.error('MSE 加载失败：', error);
-  controller.abort();
-  releaseObjectUrl();
+if (!('MediaSource' in window)) {
+  throw new Error('当前环境不支持本示例使用的 MediaSource API');
 }
 
-async function fetchResource(url) {
-  const response = await fetch(url, { signal });
-  if (!response.ok) throw new Error(`${url} 请求失败：HTTP ${response.status}`);
-  return response;
-}
+function createMseDemo(videoElement) {
+  const mediaSource = new MediaSource();
+  const objectUrl = URL.createObjectURL(mediaSource);
+  const controller = new AbortController();
+  const { signal } = controller;
+  let disposed = false;
+  let objectUrlReleased = false;
 
-function logBuffered() {
-  const ranges = [];
-  for (let i = 0; i < video.buffered.length; i++) {
-    ranges.push([video.buffered.start(i), video.buffered.end(i)]);
+  function releaseObjectUrl() {
+    if (objectUrlReleased) {
+      return;
+    }
+
+    URL.revokeObjectURL(objectUrl);
+    objectUrlReleased = true;
   }
-  console.log('video.buffered（秒）：', ranges);
-}
 
-async function onSourceOpen() {
-  releaseObjectUrl();
-  try {
+  function dispose() {
+    if (disposed) {
+      return;
+    }
+
+    disposed = true;
+    controller.abort();
+    releaseObjectUrl();
+    videoElement.removeAttribute('src');
+    videoElement.load();
+  }
+
+  async function fetchResource(url) {
+    const response = await fetch(url, { signal });
+
+    if (!response.ok) {
+      throw new Error(url + ' 请求失败：HTTP ' + response.status);
+    }
+
+    return response;
+  }
+
+  async function loadMimeType() {
     const response = await fetchResource('/video/media-info.json');
-    const { mimeType } = await response.json();
+    const mediaInfo = await response.json();
+    const { mimeType } = mediaInfo;
+
     if (typeof mimeType !== 'string' || !MediaSource.isTypeSupported(mimeType)) {
-      throw new Error(`无效或不支持的 MIME：${mimeType}`);
+      throw new Error('无效或不支持的 MIME：' + mimeType);
     }
 
-    const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
-    sourceBuffer.addEventListener('error', () => {
-      fail(new Error('SourceBuffer 解析媒体失败，请检查片段格式与 MIME'));
-    }, { signal });
-    sourceBuffer.addEventListener('abort', () => {
-      fail(new Error('SourceBuffer 追加操作被中止'));
-    }, { signal });
-
-    const queue = [];
-    for (const name of ['init.mp4', 'seg1.m4s', 'seg2.m4s', 'seg3.m4s']) {
-      const response = await fetchResource(`/video/${name}`);
-      queue.push({ name, data: await response.arrayBuffer() });
-    }
-
-    function appendNext() {
-      if (failed || disposed || sourceBuffer.updating) return;
-      try {
-        if (mediaSource.readyState !== 'open') {
-          throw new Error(`MediaSource 当前状态：${mediaSource.readyState}`);
-        }
-        if (queue.length > 0) {
-          const { name, data } = queue.shift();
-          console.log('追加：', name);
-          sourceBuffer.appendBuffer(data);
-        } else {
-          sourceBuffer.removeEventListener('updateend', onUpdateEnd);
-          mediaSource.endOfStream();
-          console.log('所有片段追加完成，请点击 video 的播放按钮');
-        }
-      } catch (error) {
-        fail(error);
-      }
-    }
-
-    function onUpdateEnd() {
-      if (failed || disposed) return;
-      logBuffered();
-      appendNext();
-    }
-
-    sourceBuffer.addEventListener('updateend', onUpdateEnd, { signal });
-    appendNext();
-  } catch (error) {
-    fail(error);
+    return mimeType;
   }
-}
-mediaSource.addEventListener('sourceopen', onSourceOpen, { once: true, signal });
-mediaSource.addEventListener('sourceclose', () => {
-  fail(new Error('MediaSource 意外关闭'));
-}, { signal });
-video.addEventListener('error', () => {
-  fail(new Error(`video 错误：${video.error?.message || video.error?.code || '未知错误'}`));
-}, { signal });
-video.src = objectUrl;
 
-function dispose() {
-  if (disposed) return;
-  disposed = true;
-  controller.abort();
-  releaseObjectUrl();
-  video.removeAttribute('src');
-  video.load();
+  function appendBuffer(sourceBuffer, data) {
+    return new Promise((resolve, reject) => {
+      function cleanup() {
+        sourceBuffer.removeEventListener('updateend', onUpdateEnd);
+        sourceBuffer.removeEventListener('error', onError);
+        sourceBuffer.removeEventListener('abort', onError);
+        signal.removeEventListener('abort', onAbort);
+      }
+
+      function onUpdateEnd() {
+        cleanup();
+        resolve();
+      }
+
+      function onError() {
+        cleanup();
+        reject(new Error('SourceBuffer 追加失败或被中止'));
+      }
+
+      function onAbort() {
+        cleanup();
+        reject(new DOMException('已停止加载', 'AbortError'));
+      }
+
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+
+      sourceBuffer.addEventListener('updateend', onUpdateEnd);
+      sourceBuffer.addEventListener('error', onError);
+      sourceBuffer.addEventListener('abort', onError);
+      signal.addEventListener('abort', onAbort, { once: true });
+
+      try {
+        sourceBuffer.appendBuffer(data);
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    });
+  }
+
+  async function loadSegments(sourceBuffer) {
+    const names = ['init.mp4', 'seg0.m4s', 'seg1.m4s'];
+
+    for (const name of names) {
+      const response = await fetchResource('/video/' + name);
+      const data = await response.arrayBuffer();
+      await appendBuffer(sourceBuffer, data);
+      console.log('已追加：', name);
+    }
+  }
+
+  function fail(error) {
+    if (disposed) {
+      return;
+    }
+
+    console.error('MSE 加载失败：', error);
+    dispose();
+  }
+
+  async function onSourceOpen() {
+    releaseObjectUrl();
+
+    try {
+      const mimeType = await loadMimeType();
+      const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+      await loadSegments(sourceBuffer);
+
+      if (disposed) {
+        return;
+      }
+
+      mediaSource.endOfStream();
+      console.log('所有片段追加完成，可点击视频控件播放');
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  mediaSource.addEventListener('sourceopen', onSourceOpen, { once: true, signal });
+  mediaSource.addEventListener('sourceclose', () => {
+    fail(new Error('MediaSource 意外关闭'));
+  }, { signal });
+  videoElement.addEventListener('error', () => {
+    const detail = videoElement.error?.message || videoElement.error?.code || '未知错误';
+    fail(new Error('video 错误：' + detail));
+  }, { signal });
+  window.addEventListener('pagehide', dispose, { once: true, signal });
+  videoElement.src = objectUrl;
+
+  return dispose;
 }
 
-window.addEventListener('pagehide', dispose, { once: true, signal });
+const disposeMseDemo = createMseDemo(video);
+// 单页应用卸载组件时调用 disposeMseDemo()。
 ```
-
-上述代码就是Hls内部的实现原理，可以看到它内部并没有做流的编码转换(h265->h264),如果浏览器不支持当前编码还是不行
